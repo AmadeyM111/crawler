@@ -1,0 +1,15 @@
+parser:
+  max_pages:
+    debug: 3
+    production: 50
+  delays:
+    min: 2
+    max: 4
+  timeouts:
+    request: 10
+{
+    "delays": {
+        "min": 2,
+        "max": 4
+    }
+}
