@@ -1,0 +1,61 @@
+# Конфигурация парсера OLX
+parser:
+  max_pages:
+    debug: 3
+    production: 50
+  
+  # Фильтры для объявлений
+  filters:
+    min_area: 50          # Минимальная площадь в м²
+    max_price: 500000     # Максимальная цена в тенге
+    locations:            # Предпочитаемые локации
+      - "алматы"
+      - "центр"
+      - "нур-султан"
+
+# Сетевые настройки
+network:
+  delays:
+    min: 2              # Минимальная задержка между запросами (сек)
+    max: 4              # Максимальная задержка между запросами (сек)
+  
+  request_timeout: 10   # Таймаут запроса (сек)
+  max_retries: 3        # Максимальное количество повторов
+  retry_delay: 2        # Базовая задержка для повторов (сек)
+
+# Настройки вывода
+output:
+  csv_encoding: "utf-8-sig"
+  debug_file: "debug_results.csv"
+  production_file: "olx_results.csv"
+
+# User Agents для ротации
+user_agents:
+  - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+# Логирование
+logging:
+  level: "INFO"         # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(levelname)s - %(message)s"
+  
+# Селекторы (для обновления при изменении сайта)
+selectors:
+  listing_container: 'div[data-cy="l-card"]'
+  
+  title:
+    - 'h6'
+    - 'h4' 
+    - '[data-cy="ad-card-title"]'
+    - 'a[data-cy="listing-ad-title"]'
+  
+  price:
+    - '[data-testid="ad-price"]'
+    - '.price'
+    - '[data-cy="ad-card-price"]'
+  
+  location:
+    - '[data-testid="location-date"]'
+    - '.bottom-cell'
+    - '[data-cy="ad-card-location"]'
