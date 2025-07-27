@@ -9,24 +9,93 @@ from urllib.robotparser import RobotFileParser
 from urllib.parse import urljoin, urlparse
 import re
 from typing import List, Dict, Optional
+import yaml
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class OLXParserDebug:
-    def __init__(self):
+class OLXParser:
+    def __init__(self, config_file='settings.yaml', debug_mode=True):
+        # Загрузка конфига в конструкторе
+        self.config = self._load_config(config_file)
+        self.debug_mode = debug_mode      
+        
+        # Initialize main attributes
         self.base_url = "https://www.olx.kz"
         self.search_url = "https://www.olx.kz/nedvizhimost/kommercheskie-pomeshcheniya/arenda/"
         self.user_agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         ]
-        self.session = requests.Session()
-        self.max_pages = 3  # Уменьшили для отладки
-        self.request_timeout = 10
-        self.output_file = "olx_commercial_debug.csv"
         
+        self.session = requests.Session()
+        self.max_pages = self._get_max_pages()
+        self.request_timeout = self.config.get('network', {}).get('request_timeout', 10)
+        self.min_delay = self.config.get('network', {}).get('delays', {}).get('min', 2)
+        self.max_delay = self.config.get('network', {}).get('delays', {}).get('max', 4)
+
+        # Файл для сохранения
+        self.output_file = "olx_commercial_debug.csv"
+
+        logger.info(f"Парсер инициализирован в режиме: {'отладка' if debug_mode else 'продакшн'}")
+        logger.info(f"Максимум страниц: {self.max_pages}")
+        logger.info(f"Задержки: {self.min_delay}--{self.max_delay} сек")
+
+    def _load_config(self, config_file: str) -> dict:
+        """Безопасная загрузка конфига"""
+        try: 
+            with open(config_file, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                if config is None:
+                    logger.warning(f"Файл {config_file} пустой")
+                    return {}
+                logger.info(f"Конфигурация успешно загружена из {config_file}")
+                return config
+        except FileNotFoundError:
+            logger.warning(f"Файл {config_file} не найден, используем настройки по умолчанию")
+            return {}
+        except yaml.YAMLError as e:
+            logger.error(f"Ошибка парсинга YAML файла {config_file}: {e}")
+            return {}
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка при загрузке {config_file}: {e}")
+            return {}
+
+    def _get_max_pages(self) -> int:
+        """Определяет максимальное количество страниц"""
+        try:
+            if self.debug_mode:
+                return self.config.get('parser', {}).get('max_pages', {}).get('debug', 3)
+            else:
+                return self.config.get('parser', {}).get('max_pages', {}).get('production', 50)
+        except Exception as e:
+            logger.error(f"Ошибка получения max_pages из конфига: {e}")
+            return 3 if self.debug_mode else 50
+
+    def wait_between_requests(self):
+        """Случайная задержка между запросами"""
+        try:
+            delay = random.uniform(self.min_delay, self.max_delay)
+            logger.info(f"Ожидание {delay:.1f} секунд...")
+            sleep(delay)
+        except Exception as e:
+            logger.error(f"Ошибка в wait_beetween_requests: {e}")
+            sleep(2) # Fallback задержка
+
+    def check_robots_txt(self) -> bool:
+        """Проверяет разрешение в robots.txt"""
+        try:
+            rp = RobotFileParser()
+            rp.set_url(f"{self.base_url}/robots.txt")
+            rp.read()
+            can_fetch = rp.can_fetch('*', self.search_url)
+            logger.info(f"Проверка robots.txt: {'разрешено' if can_fetch else 'запрещено'}")
+            return can_fetch
+        except Exception as e:
+            logger.error(f"Ошибка при проверке robots.txt: {e}")
+            return False
+
     def setup_session(self) -> None:
         """Настраивает сессию с правильными заголовками"""
         self.session.headers.update({
@@ -206,7 +275,7 @@ class OLXParserDebug:
             logger.info(f"Числовая цена: {result}")
             return result
         except ValueError as e:
-            logger.info(f"Ошибка конвертации цены: {e}")
+            logger.error(f"Ошибка конвертации цены: {e}")
             return None
 
     def _extract_area_debug(self, title: str) -> Optional[float]:
@@ -286,11 +355,11 @@ class OLXParserDebug:
         # Все фильтры вместе
         combined_pass = 0
         for l in listings:
-            area_ok = l['area'] and l['area'] >= 50
-            price_ok = l['price_numeric'] and l['price_numeric'] <= 500000
-            location_ok = any(keyword.lower() in l['location'].lower() for keyword in ['алматы', 'центр'])
+            area_relevant = l['area'] and l['area'] >= 50
+            price_relevant = l['price_numeric'] and l['price_numeric'] <= 500000
+            location_relevant = any(keyword.lower() in l['location'].lower() for keyword in ['алматы', 'центр'])
             
-            if area_ok and price_ok and location_ok:
+            if area_relevant and price_relevant and location_relevant:
                 combined_pass += 1
         
         logger.info(f"Прошли все фильтры одновременно: {combined_pass}")
@@ -309,7 +378,9 @@ class OLXParserDebug:
             listings = self.scrape_page_debug(page_url)
             all_listings.extend(listings)
             
-            sleep(random.uniform(2, 4))
+
+            self.wait_between_requests()
+
         
         # Анализируем собранные данные
         self.analyze_data_debug(all_listings)
@@ -322,7 +393,7 @@ class OLXParserDebug:
 
 
 def main():
-    parser = OLXParserDebug()
+    parser = OLXParser()
     parser.run_debug()
 
 
